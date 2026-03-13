@@ -5,6 +5,7 @@ import re
 from datetime import datetime, timedelta
 
 from dotenv import load_dotenv
+from nlp.extractor import extract_entities
 from telethon import TelegramClient
 from telethon.sessions import StringSession
 from telethon.errors import FloodWaitError
@@ -52,48 +53,6 @@ db = ProductDatabase()
 
 
 # -------------------------
-# Filtering rules
-# -------------------------
-
-# Words that usually mean advertisements or unrelated posts
-AD_KEYWORDS = [
-    "join",
-    "subscribe",
-    "follow",
-    "promotion",
-    "advert",
-    "delivery service",
-    "training",
-    "course",
-    "vacancy",
-    "job",
-    "apply",
-    "discount code",
-]
-
-# Electronics keywords
-PRODUCT_KEYWORDS = [
-    "iphone",
-    "samsung",
-    "macbook",
-    "laptop",
-    "ipad",
-    "tablet",
-    "phone",
-    "monitor",
-    "pc",
-    "computer",
-    "camera",
-    "printer",
-    "router",
-    "ssd",
-    "hard drive",
-    "keyboard",
-    "mouse",
-]
-
-
-# -------------------------
 # Utility Filters
 # -------------------------
 
@@ -119,43 +78,12 @@ def contains_price(text: str) -> bool:
     return False
 
 
-def looks_like_ad(text: str) -> bool:
-    """
-    Detect common advertisement posts.
-    """
-    text_lower = text.lower()
-
-    for word in AD_KEYWORDS:
-        if word in text_lower:
-            return True
-
-    return False
-
-
-def looks_like_product(text: str) -> bool:
-    """
-    Detect if text contains electronics keywords.
-    """
-    text_lower = text.lower()
-
-    for word in PRODUCT_KEYWORDS:
-        if word in text_lower:
-            return True
-
-    return False
-
-
 def is_valid_product_message(text: str) -> bool:
     """
     Final filter logic
     """
-    if looks_like_ad(text):
-        return False
 
     if not contains_price(text):
-        return False
-
-    if not looks_like_product(text):
         return False
 
     return True
@@ -226,15 +154,13 @@ async def scrape_channel(channel):
                 f"Valid product found | {channel_username} | msg:{message.id}"
             )
 
-            # --------------------------------
-            # Later send to LLM extractor
-            # --------------------------------
-            # extracted = await extract_entities(payload)
-            # if extracted:
-            #     db.add_product(extracted)
-
-            # For now just store raw
-            db.add_product(payload)
+            # Send to LLM extractor
+            extracted_payload = await extract_entities(payload)
+            
+            # Only add to Meilisearch if the LLM successfully found a product and price
+            if extracted_payload:
+                db.add_product(extracted_payload)
+                logger.info(f"Successfully indexed: {extracted_payload['id']}")
 
     except FloodWaitError as e:
         logger.warning(f"Rate limit hit. Sleeping {e.seconds} seconds")

@@ -59,8 +59,13 @@ class ProductDatabase:
             "timestamp": 1700000000
         }
         """
-        task = self.index.add_documents([product_data])
-        return task
+        try:
+            task = self.index.add_documents([product_data])
+            print("Inserted:", product_data["id"])
+            return task
+
+        except Exception as e:
+            print("Insert error:", e)
 
     def search_products(self, query: str, max_price: int = None, location: str = None):
         """
