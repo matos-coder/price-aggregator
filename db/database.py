@@ -61,6 +61,7 @@ class ProductDatabase:
         """
         try:
             task = self.index.add_documents([product_data])
+            self.client.wait_for_task(task.task_uid)
             print("Inserted:", product_data["id"])
             return task
 

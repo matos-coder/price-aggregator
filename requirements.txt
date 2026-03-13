@@ -1,4 +1,5 @@
 python-dotenv
 meilisearch
 telethon
-google-generativeai
+# google-generativeai
+groq
