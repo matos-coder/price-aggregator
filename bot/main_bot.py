@@ -70,7 +70,7 @@ async def handle_search_query(message: Message):
 
     try:
         # 1. Search Meilisearch (Grab up to 15 results for a better average)
-        search_results = index.search(query, {"limit": 15})
+        search_results = index.search(query, {"limit": 15,"sort": ["price:asc"]})
         hits = search_results.get("hits", [])
 
         if not hits:
