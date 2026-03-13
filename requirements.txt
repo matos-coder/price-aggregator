@@ -3,3 +3,4 @@ meilisearch
 telethon
 # google-generativeai
 groq
+aiogram
