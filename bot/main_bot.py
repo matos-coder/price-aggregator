@@ -110,10 +110,8 @@ async def handle_search_query(message: Message):
     )
     
     try:
-        search_params = {
-            "limit": 15,
-            "sort": ["price:asc"]
-        }
+        # 1. Search Meilisearch (Grab up to 50 results for TRUE market math, no sorting here)
+        search_params = {"limit": 50}
 
         filters = []
 
@@ -125,81 +123,53 @@ async def handle_search_query(message: Message):
 
         if filters:
             search_params["filter"] = " AND ".join(filters)
-        # 1. Search Meilisearch (Grab up to 15 results for a better average)
-        # search_results = index.search(query, {"limit": 15,"sort": ["price:asc"]})
         search_results = index.search(query, search_params)
         hits = search_results.get("hits", [])
 
         if not hits:
-            logger.info(f"No results found for '{query}'.")
-            await message.answer(f"🚫 No results found for <b>'{query}'</b>. Try using a broader keyword!")
+            await message.answer(f"🚫 No results found for <b>'{query}'</b>.")
             return
 
-        # 2. Price Intelligence Math
-        # Extract valid prices from the search hits
+        # 2. Price Intelligence Math (True Market Average)
         prices = [hit["price"] for hit in hits if hit.get("price")]
         
         if not prices:
-            await message.answer(f"Found mentions of <b>'{query}'</b>, but no clear prices were listed in those posts.")
+            await message.answer(f"No clear prices listed for <b>'{query}'</b>.")
             return
 
         min_price = min(prices)
         max_price = max(prices)
         avg_price = sum(prices) // len(prices)
 
-        # 3. Format the Output
+        # 3. Sort hits in Python to get the cheapest options for display
+        cheapest_hits = sorted([h for h in hits if h.get("price")], key=lambda x: x["price"])
+        best_deal = cheapest_hits[0]
+
+        # 4. Format the Output
         response = f"📊 <b>Price Intelligence for '{query}'</b>\n"
-        response += f"📉 Lowest: {min_price:,} Birr\n"
-        response += f"📈 Highest: {max_price:,} Birr\n"
-        response += f"⚖️ Average: {avg_price:,} Birr\n\n"
-        response += "🛒 <b>Top Available Options:</b>\n\n"
+        response += f"📉 Lowest: {min_price:,} ETB\n"
+        response += f"📈 Highest: {max_price:,} ETB\n"
+        response += f"⚖️ Average: {avg_price:,} ETB\n\n"
         
-        # 
-        best_deal = min(hits, key=lambda x: x.get("price", float("inf")))
-        best_name = best_deal.get("product_name", "Unknown")
-        best_price = best_deal.get("price", 0)
-        best_location = best_deal.get("location", "Unknown")
-        best_channel = best_deal.get("channel_username", "")
-        best_msg = best_deal.get("message_id", "")
+        # Add the Best Deal highlight you commented out!
+        response += "🔥 <b>BEST DEAL RIGHT NOW</b>\n"
+        response += f"<b>{best_deal.get('product_name')}</b>\n"
+        response += f"💰 {best_deal.get('price'):,} ETB | 📍 {best_deal.get('location')}\n"
+        response += f"🔗 <a href='https://t.me/{best_deal.get('channel_username')}/{best_deal.get('message_id')}'>View Original Post</a>\n\n"
 
-        best_link = f"https://t.me/{best_channel}/{best_msg}"
+        response += "🛒 <b>Other Top Options:</b>\n\n"
 
-        # 4. Append Top 5 Individual Products
-        for idx, hit in enumerate(hits[:5], 1):
-
+        # Append next 4 cheapest products (skipping index 0 since it's the Best Deal)
+        for idx, hit in enumerate(cheapest_hits[1:5], 1):
             product_name = hit.get('product_name', 'Unknown')
             price = hit.get('price', 0)
             location = hit.get('location', 'Unknown')
-            channel = hit.get('channel_username', 'Unknown')
-            msg_id = hit.get('message_id', '')
-
-            post_link = f"https://t.me/{channel}/{msg_id}"
-
+            post_link = f"https://t.me/{hit.get('channel_username')}/{hit.get('message_id')}"
+            
             response += f"{idx}. <b>{product_name}</b>\n"
-            response += f"💰 {price:,} Birr | 📍 {location}\n"
-            response += f"🔗 <a href='{post_link}'>View Original Post</a>\n\n"
-            
-        # for idx, hit in enumerate(hits[:5], 1):
-        #     product_name = hit.get('product_name', 'Unknown')
-        #     price = hit.get('price', 0)
-        #     location = hit.get('location', 'Unknown')
-        #     channel = hit.get('channel_username', 'Unknown')
-        #     msg_id = hit.get('message_id', '')
-            
-        #     # Create a deep link directly to the Telegram post
-        #     post_link = f"https://t.me/{channel}/{msg_id}"
-            
-        #     response += f"{idx}. <b>{product_name}</b>\n"
-        #     response += f"💰 {price:,} Birr | 📍 {location}\n"
-        #     response += f"🔗 <a href='{post_link}'>View Original Post</a>\n\n"
-            
-        #     # 
-        #     response += "🔥 <b>BEST DEAL RIGHT NOW</b>\n"
-        #     response += f"<b>{best_name}</b>\n"
-        #     response += f"💰 {best_price:,} Birr | 📍 {best_location}\n"
-        #     response += f"🔗 <a href='{best_link}'>View Original Post</a>\n\n"
+            response += f"💰 {price:,} ETB | 📍 {location}\n"
+            response += f"🔗 <a href='{post_link}'>View Post</a>\n\n"
 
-        # Send the final compiled message (disable web preview so the chat doesn't get cluttered with link previews)
         await message.answer(response, disable_web_page_preview=True)
         logger.info(f"Successfully served results for '{query}'")
 
