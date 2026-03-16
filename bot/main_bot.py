@@ -1,6 +1,7 @@
 import os
 import logging
 import asyncio
+import re
 from dotenv import load_dotenv
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import CommandStart
@@ -45,6 +46,41 @@ except Exception as e:
 bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 dp = Dispatcher()
 
+
+# -------------------------
+# Query Understanding
+# -------------------------
+
+def parse_user_query(user_text: str):
+    """
+    Extract search query, max price, and location from user input.
+    Example:
+    'laptop under 70000 bole'
+    """
+
+    text = user_text.lower()
+
+    max_price = None
+    location = None
+
+    # Detect price
+    price_match = re.search(r"(under|below|less than)\s*(\d+)", text)
+    if price_match:
+        max_price = int(price_match.group(2))
+        text = text.replace(price_match.group(0), "")
+
+    # Detect simple location words (can expand later)
+    possible_locations = ["bole", "megenagna", "piassa", "4kilo", "sarbet"]
+
+    for loc in possible_locations:
+        if loc in text:
+            location = loc
+            text = text.replace(loc, "")
+
+    query = text.strip()
+
+    return query, max_price, location
+
 # -------------------------
 # Bot Handlers
 # -------------------------
@@ -65,12 +101,33 @@ async def cmd_start(message: Message):
 @dp.message(F.text)
 async def handle_search_query(message: Message):
     """Captures user text, queries Meilisearch, and calculates Price Intelligence."""
-    query = message.text.strip()
-    logger.info(f"Search initiated | User: {message.from_user.id} | Query: '{query}'")
-
+    # query = message.text.strip()
+    # logger.info(f"Search initiated | User: {message.from_user.id} | Query: '{query}'")
+    raw_query = message.text.strip()
+    query, max_price, location = parse_user_query(raw_query)
+    logger.info(
+        f"Search | User:{message.from_user.id} | Query:{query} | MaxPrice:{max_price} | Location:{location}"
+    )
+    
     try:
+        search_params = {
+            "limit": 15,
+            "sort": ["price:asc"]
+        }
+
+        filters = []
+
+        if max_price:
+            filters.append(f"price <= {max_price}")
+
+        if location:
+            filters.append(f"location = '{location}'")
+
+        if filters:
+            search_params["filter"] = " AND ".join(filters)
         # 1. Search Meilisearch (Grab up to 15 results for a better average)
-        search_results = index.search(query, {"limit": 15,"sort": ["price:asc"]})
+        # search_results = index.search(query, {"limit": 15,"sort": ["price:asc"]})
+        search_results = index.search(query, search_params)
         hits = search_results.get("hits", [])
 
         if not hits:
@@ -96,21 +153,51 @@ async def handle_search_query(message: Message):
         response += f"📈 Highest: {max_price:,} Birr\n"
         response += f"⚖️ Average: {avg_price:,} Birr\n\n"
         response += "🛒 <b>Top Available Options:</b>\n\n"
+        
+        # 
+        best_deal = min(hits, key=lambda x: x.get("price", float("inf")))
+        best_name = best_deal.get("product_name", "Unknown")
+        best_price = best_deal.get("price", 0)
+        best_location = best_deal.get("location", "Unknown")
+        best_channel = best_deal.get("channel_username", "")
+        best_msg = best_deal.get("message_id", "")
+
+        best_link = f"https://t.me/{best_channel}/{best_msg}"
 
         # 4. Append Top 5 Individual Products
         for idx, hit in enumerate(hits[:5], 1):
+
             product_name = hit.get('product_name', 'Unknown')
             price = hit.get('price', 0)
             location = hit.get('location', 'Unknown')
             channel = hit.get('channel_username', 'Unknown')
             msg_id = hit.get('message_id', '')
-            
-            # Create a deep link directly to the Telegram post
+
             post_link = f"https://t.me/{channel}/{msg_id}"
-            
+
             response += f"{idx}. <b>{product_name}</b>\n"
             response += f"💰 {price:,} Birr | 📍 {location}\n"
             response += f"🔗 <a href='{post_link}'>View Original Post</a>\n\n"
+            
+        # for idx, hit in enumerate(hits[:5], 1):
+        #     product_name = hit.get('product_name', 'Unknown')
+        #     price = hit.get('price', 0)
+        #     location = hit.get('location', 'Unknown')
+        #     channel = hit.get('channel_username', 'Unknown')
+        #     msg_id = hit.get('message_id', '')
+            
+        #     # Create a deep link directly to the Telegram post
+        #     post_link = f"https://t.me/{channel}/{msg_id}"
+            
+        #     response += f"{idx}. <b>{product_name}</b>\n"
+        #     response += f"💰 {price:,} Birr | 📍 {location}\n"
+        #     response += f"🔗 <a href='{post_link}'>View Original Post</a>\n\n"
+            
+        #     # 
+        #     response += "🔥 <b>BEST DEAL RIGHT NOW</b>\n"
+        #     response += f"<b>{best_name}</b>\n"
+        #     response += f"💰 {best_price:,} Birr | 📍 {best_location}\n"
+        #     response += f"🔗 <a href='{best_link}'>View Original Post</a>\n\n"
 
         # Send the final compiled message (disable web preview so the chat doesn't get cluttered with link previews)
         await message.answer(response, disable_web_page_preview=True)

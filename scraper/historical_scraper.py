@@ -68,7 +68,8 @@ def contains_price(text: str) -> bool:
     price_patterns = [
         r"\b\d{4,7}\b",
         r"\b\d{2,3}k\b",
-        r"\b\d{4,7}\s?(birr|br)\b"
+        r"\b\d{4,7}\s?(birr|br)\b",
+        r"\b\d{1,3}(,\d{3})*\b"
     ]
 
     for pattern in price_patterns:

@@ -14,7 +14,15 @@ class ProductDatabase:
         
         self.client = meilisearch.Client(host, api_key)
         self.index_name = "products"
+        # Create index with primary key if it does not exist
+        try:
+            self.client.get_index(self.index_name)
+        except:
+            print("Creating index with primary key...")
+            self.client.create_index(self.index_name, {"primaryKey": "id"})
+
         self.index = self.client.index(self.index_name)
+        # self.index = self.client.index(self.index_name)
         
     def setup_index(self):
         """
