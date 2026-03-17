@@ -2,7 +2,7 @@ import os
 import asyncio
 import logging
 import re
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from dotenv import load_dotenv
 from nlp.extractor import extract_entities
@@ -122,7 +122,7 @@ async def scrape_channel(channel):
         # TEST MODE
         # ------------------------------------------
         # Only scrape last 5 messages
-        messages = client.iter_messages(entity, limit=5)
+        # messages = client.iter_messages(entity, limit=5)
 
         # ------------------------------------------
         # PRODUCTION MODE (UNCOMMENT LATER)
@@ -130,8 +130,9 @@ async def scrape_channel(channel):
         # Scrape last 1 month
         #
         # one_month_ago = datetime.utcnow() - timedelta(days=30)
-        # messages = client.iter_messages(entity)
-        #
+        one_month_ago = datetime.now(timezone.utc) - timedelta(days=30)
+        messages = client.iter_messages(entity)
+        
 
         async for message in messages:
 
@@ -141,8 +142,8 @@ async def scrape_channel(channel):
             text = message.message.strip()
 
             # If production mode enabled
-            # if message.date < one_month_ago:
-            #     break
+            if message.date < one_month_ago:
+                break
 
             if not is_valid_product_message(text):
                 continue
