@@ -1,0 +1,48 @@
+version: '3.8'
+
+services:
+  # 1. The Search Engine
+  meilisearch:
+    image: getmeili/meilisearch:v1.7
+    container_name: meilisearch_db
+    environment:
+      - MEILI_MASTER_KEY=${MEILI_MASTER_KEY}
+      - MEILI_ENV=production
+    ports:
+      - "7700:7700"
+    volumes:
+      - meili_data:/meili_data # Saves your DB data so it isn't lost on restart
+    restart: always
+
+  # 2. The 24/7 Telegram Listener
+  listener:
+    build: .
+    container_name: ethio_radar_listener
+    command: python -m scraper.listener
+    environment:
+      - TELEGRAM_APP_ID=${TELEGRAM_APP_ID}
+      - TELEGRAM_API_HASH=${TELEGRAM_API_HASH}
+      - TARGET_CHANNELS=${TARGET_CHANNELS}
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - MEILI_HOST=http://meilisearch:7700 # Uses internal Docker network
+      - MEILI_MASTER_KEY=${MEILI_MASTER_KEY}
+    depends_on:
+      - meilisearch
+    restart: always
+
+  # 3. The Consumer Bot
+  bot:
+    build: .
+    container_name: ethio_radar_bot
+    command: python -m bot.main_bot
+    environment:
+      - BOT_TOKEN=${BOT_TOKEN}
+      - MEILI_HOST=http://meilisearch:7700
+      - MEILI_MASTER_KEY=${MEILI_MASTER_KEY}
+    depends_on:
+      - meilisearch
+    restart: always
+
+# Define the persistent volume for the database
+volumes:
+  meili_data:
