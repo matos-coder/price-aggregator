@@ -1,6 +1,8 @@
 import os
 import meilisearch
 from dotenv import load_dotenv
+from meilisearch.errors import MeilisearchCommunicationError
+import time
 
 # Load environment variables
 load_dotenv()
@@ -15,6 +17,24 @@ class ProductDatabase:
         self.client = meilisearch.Client(host, api_key)
         self.index_name = "products"
         # Create index with primary key if it does not exist
+        
+        # --- FIX: Connection Retry Loop ---
+        max_retries = 10
+        connected = False
+        for i in range(max_retries):
+            try:
+                # Check if Meilisearch is responding
+                self.client.health()
+                connected = True
+                break
+            except MeilisearchCommunicationError:
+                print(f"⏳ Meilisearch not ready at {host}... retrying ({i+1}/{max_retries})")
+                time.sleep(3) # Wait 3 seconds before next try
+
+        if not connected:
+            print("❌ Could not connect to Meilisearch after 10 attempts.")
+            exit(1)
+        # ----------------------------------
         try:
             self.client.get_index(self.index_name)
         except:
