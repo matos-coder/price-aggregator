@@ -4,3 +4,6 @@ telethon
 # google-generativeai
 groq
 aiogram
+
+fastapi
+uvicorn
