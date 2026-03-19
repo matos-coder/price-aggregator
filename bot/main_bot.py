@@ -48,7 +48,8 @@ except Exception as e:
     exit(1)
 
 # Initialize Bot Client
-bot = TelegramClient(StringSession(BOT_STRING), int(API_ID), API_HASH)
+# bot = TelegramClient(StringSession(BOT_STRING), int(API_ID), API_HASH)
+bot = TelegramClient(StringSession(""), int(API_ID), API_HASH)
 
 # Initialize FastAPI for Hugging Face health checks
 app = FastAPI()
