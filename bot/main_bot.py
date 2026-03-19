@@ -30,7 +30,7 @@ MEILI_HOST = os.getenv("MEILI_HOST")
 MEILI_KEY = os.getenv("MEILI_MASTER_KEY")
 # Provide an empty string if you don't have a generated session string yet.
 # Telethon will create a stateless in-memory session using the bot token.
-BOT_STRING = os.getenv("BOT_SESSION_STRING", "") 
+BOT_STRING = os.getenv("BOT_SESSION_STRING") 
 
 if not all([API_ID, API_HASH, BOT_TOKEN]):
     logger.error("CRITICAL: Telegram API credentials missing in .env")
