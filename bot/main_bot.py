@@ -23,8 +23,8 @@ logger = logging.getLogger("MainBot")
 # -------------------------
 load_dotenv()
 
-API_ID = os.getenv("API_ID")
-API_HASH = os.getenv("API_HASH")
+API_ID = os.getenv("TELEGRAM_APP_ID")
+API_HASH = os.getenv("TELEGRAM_API_HASH")
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 MEILI_HOST = os.getenv("MEILI_HOST")
 MEILI_KEY = os.getenv("MEILI_MASTER_KEY")
