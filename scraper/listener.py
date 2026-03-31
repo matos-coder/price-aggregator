@@ -5,7 +5,7 @@ from dotenv import load_dotenv
 from telethon import TelegramClient, events
 from telethon.sessions import StringSession
 from db.database import ProductDatabase
-from nlp.extractor import extract_entities_with_llm
+from nlp.extractor import extract_entities
 
 
 # 1. Production-Grade Logging Setup
@@ -62,7 +62,7 @@ async def handle_new_message(event):
         }
 
         # TODO in Phase 3: Send 'raw_payload' to nlp/extractor.py 
-        extracted_json = await extract_entities_with_llm(raw_payload)
+        extracted_json = await extract_entities(raw_payload)
         if extracted_json:
             db.add_product(extracted_json)
         
