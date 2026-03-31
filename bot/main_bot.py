@@ -41,7 +41,18 @@ if not all([API_ID, API_HASH, BOT_TOKEN]):
 # -------------------------
 try:
     meili_client = meilisearch.Client(MEILI_HOST, MEILI_KEY)
+    try:
+        meili_client.get_index("products")
+        logger.info("Found existing 'products' index.")
+    except meilisearch.errors.MeilisearchApiError as e:
+        if e.code == "index_not_found":
+            logger.info("Index 'products' not found. Creating an empty one now...")
+            meili_client.create_index("products")
+        else:
+            # If it's a wrong password or network error, raise it
+            raise e
     index = meili_client.index("products")
+    index.update_filterable_attributes(['price', 'location'])
     logger.info("Successfully connected to Meilisearch.")
 except Exception as e:
     logger.error(f"Failed to connect to Meilisearch: {e}")
