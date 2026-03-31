@@ -4,6 +4,9 @@ import asyncio
 from dotenv import load_dotenv
 from telethon import TelegramClient, events
 from telethon.sessions import StringSession
+from db.database import ProductDatabase
+from nlp.extractor import extract_entities_with_llm
+
 
 # 1. Production-Grade Logging Setup
 logging.basicConfig(
@@ -29,6 +32,8 @@ TARGET_CHANNELS = [channel.strip() for channel in CHANNELS_ENV.split(',')]
 
 # 3. Initialize the Telegram Client
 client = TelegramClient(StringSession(STRING_SESSION), int(API_ID), API_HASH)
+
+db = ProductDatabase()
 
 # 4. The Event-Driven Listener
 @client.on(events.NewMessage(chats=TARGET_CHANNELS))
@@ -57,9 +62,9 @@ async def handle_new_message(event):
         }
 
         # TODO in Phase 3: Send 'raw_payload' to nlp/extractor.py 
-        # extracted_json = await extract_entities_with_llm(raw_payload)
-        # if extracted_json:
-        #     db.add_product(extracted_json)
+        extracted_json = await extract_entities_with_llm(raw_payload)
+        if extracted_json:
+            db.add_product(extracted_json)
         
         # For now, just log the text snippet to verify it works
         logger.info(f"Snippet: {raw_text[:50]}...")

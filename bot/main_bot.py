@@ -8,6 +8,8 @@ from telethon.sessions import StringSession
 import meilisearch
 from fastapi import FastAPI
 import uvicorn
+import subprocess
+from datetime import datetime, timezone
 
 # -------------------------
 # Production Logging Setup
@@ -68,6 +70,42 @@ app = FastAPI()
 @app.get("/")
 async def root():
     return {"status": "Ethio Price Radar Bot is Running"}
+
+# -------------------------
+# Keep-Alive Endpoint
+# -------------------------
+@app.get("/ping")
+async def ping():
+    """External cron jobs will hit this to keep HF awake."""
+    logger.info("💓 Health ping received. Space is awake.")
+    return {
+        "status": "alive", 
+        "timestamp": datetime.now(timezone.utc).isoformat()
+    }
+
+# -------------------------
+# On-Demand Seeder Endpoint
+# -------------------------
+@app.get("/seed")
+async def trigger_seeder(token: str = None):
+    """
+    Trigger the historical scraper remotely.
+    Usage: https://your-hf-url.hf.space/seed?token=YOUR_BOT_TOKEN
+    """
+    # 🔒 Security: Only allow running if they provide your bot token
+    if token != BOT_TOKEN:
+        logger.warning("🚨 Unauthorized seed attempt blocked.")
+        return {"error": "Unauthorized. Invalid token."}
+
+    logger.info("🚀 Manual seed triggered via API.")
+    
+    # Run the seeder in a background subprocess so it doesn't freeze the API/Bot
+    try:
+        subprocess.Popen(["python", "db/seeder.py"])
+        return {"status": "Historical seeding started in the background. Check HF logs."}
+    except Exception as e:
+        logger.error(f"Failed to start seeder: {e}")
+        return {"error": str(e)}
 
 # -------------------------
 # Query Understanding
