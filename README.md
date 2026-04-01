@@ -50,6 +50,9 @@ For the bot to start successfully, the following exact keys must exist in your H
 - `BOT_TOKEN` (String, from `@BotFather`)
 - `MEILI_HOST` (e.g. `http://127.0.0.1:7700`)
 - `MEILI_MASTER_KEY` (Your secure database password)
+- `GROQ_API_KEY`
+- `TELEGRAM_STRING_SESSION`
+- `TARGET_CHANNELS=nevacomputer,heyonlinemarket,ethicomputer,abmobilet,amanelectronics1`
 
 > Note: The project intentionally stopped using a `BOT_SESSION_STRING` for the main bot. Telethon is configured with an empty `StringSession("")`, forcing a clean login using `BOT_TOKEN` on every restart. This prevents "User vs. Bot" session conflicts.
 
