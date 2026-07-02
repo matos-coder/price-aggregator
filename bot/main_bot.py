@@ -153,19 +153,37 @@ async def handle_search_query(event):
     logger.info(f"Search | User:{event.sender_id} | Query:{query} | MaxPrice:{max_price} | Location:{location}")
     
     try:
-        search_params = {"limit": 50}
         filters = []
-
         if max_price:
             filters.append(f"price <= {max_price}")
         if location:
             filters.append(f"location = '{location}'")
+        filter_str = " AND ".join(filters) if filters else None
 
-        if filters:
-            search_params["filter"] = " AND ".join(filters)
-            
-        search_results = index.search(query, search_params)
-        hits = search_results.get("hits", [])
+        def run_search(matching_strategy, limit):
+            params = {
+                "limit": limit,
+                "matchingStrategy": matching_strategy,
+                "showRankingScore": True,
+            }
+            if filter_str:
+                params["filter"] = filter_str
+            return index.search(query, params).get("hits", [])
+
+        # Tier 1: strict match — every word in the query must be present
+        # (e.g. "samsung a25" only matches listings mentioning BOTH terms).
+        hits = run_search("all", 30)
+
+        # Tier 2: top up with close/related matches (e.g. "samsung a24") if the
+        # strict match is thin, but drop anything too weakly related so a bare
+        # "samsung" match doesn't creep back in. RELEVANCE_THRESHOLD is tunable.
+        if len(hits) < 5:
+            RELEVANCE_THRESHOLD = 0.35
+            seen_ids = {hit["id"] for hit in hits}
+            for hit in run_search("last", 50):
+                if hit["id"] not in seen_ids and hit.get("_rankingScore", 0) >= RELEVANCE_THRESHOLD:
+                    hits.append(hit)
+                    seen_ids.add(hit["id"])
 
         if not hits:
             await event.respond(f"🚫 No results found for <b>'{query}'</b>.", parse_mode='html')
