@@ -56,25 +56,54 @@ For the bot to start successfully, the following exact keys must exist in your H
 
 > Note: The project intentionally stopped using a `BOT_SESSION_STRING` for the main bot. Telethon is configured with an empty `StringSession("")`, forcing a clean login using `BOT_TOKEN` on every restart. This prevents "User vs. Bot" session conflicts.
 
+> Optional: `GROQ_MODEL` (defaults to `llama-3.3-70b-versatile`) and `BACKFILL_DAYS` (defaults to `30`, how far back the historical scraper goes).
+
 ## 🔍 Core Features
 
-### 1. NLP Query Parsing
+### 1. LLM Query Understanding (with regex fallback)
 
-When a user sends a query like `laptop under 70000 bole`, the bot automatically extracts:
+When a user sends a query like `I want a macbook m2 16gb under 120k in bole`, `nlp/query_parser.py` uses Groq to extract:
 
-- `Query`: `laptop`
-- `Max Price`: `70000`
+- `Query`: `macbook m2 16gb`
+- `Max Price`: `120000` (understands `120k`, `50,000`, "budget of", "up to", ...)
 - `Location`: `bole`
+
+If the LLM is down, slow (>6s), or returns garbage, a pure-regex parser (`parse_user_query_fallback`) takes over so the bot always answers. Budget-only queries ("anything under 5000") are searched cheapest-first.
 
 ### 2. Price Intelligence Engine
 
-The bot queries Meilisearch and fetches up to 50 results to calculate accurate market metrics:
+The bot runs a two-tier relevance search against Meilisearch before calculating any market metrics, so "cheapest" never overrides "relevant":
+
+1. **Strict pass** (`matchingStrategy: "all"`): every word in the query must appear in the listing (e.g. `samsung a25` only matches listings mentioning both terms).
+2. **Fallback pass** (only runs if the strict pass returns fewer than 5 hits): broadens with `matchingStrategy: "last"`, keeping only hits whose `_rankingScore` clears `RELEVANCE_THRESHOLD` (0.35 in `main_bot.py`). This is what lets close variants (e.g. `a24` for an `a25` search) show up as extras without letting weakly-related noise back in.
+
+Only this relevance-filtered set is then used to calculate:
 
 - Lowest Price
 - Highest Price
 - Average Price
-- Best Deal Right Now: highlights the absolute cheapest option and includes a direct `t.me` link to the original seller's post.
-- Other Top Options: lists the next 4 cheapest alternatives.
+- Best Deal Right Now: highlights the cheapest option *within the relevant set* and includes a direct `t.me` link to the original seller's post.
+- Other Top Options: lists the next 4 cheapest alternatives from that same set.
+
+Each listing shows how fresh it is (e.g. `🕒 3d ago`), and product names/locations are HTML-escaped before being sent to Telegram.
+
+### 3. Ingestion Pipeline (listener + historical scraper)
+
+Both feed the same `products` Meilisearch index through the same steps:
+
+1. **Cheap pre-filter** (`scraper/filters.py`): messages without a plausible price never reach the LLM. Phone numbers (`09...`/`+2519...`) are masked first so they don't masquerade as prices.
+2. **LLM extraction** (`nlp/extractor.py`, AsyncGroq): pulls `product_name` (brand + model + specs), `price` (ETB integer) and `location`. Retries on rate limits; rejects prices outside sanity bounds (100 – 50,000,000 ETB).
+3. **Dedupe**: the historical scraper checks `document_exists(id)` *before* calling the LLM, so re-running the seeder doesn't re-spend Groq quota.
+4. **Index write** (`db/database.py`): includes synonyms (macbook/mac book, laptop/notebook, ...) so shopper spelling variants still match.
+
+### 4. Tests
+
+Pure-function tests (no network) cover the price pre-filter and the regex query parser:
+
+```
+pip install pytest
+python -m pytest tests/ -q
+```
 
 ## ⚠️ Known Quirks & "Gotchas" (Read Before Resuming)
 

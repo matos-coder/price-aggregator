@@ -10,7 +10,7 @@ Stack: Telethon (MTProto Telegram client) + FastAPI (health check) + Meilisearch
 
 ## Running locally
 
-There is no test suite, linter, or build step configured in this repo — verification is done by running the components against a live (or local) Meilisearch instance and Telegram API.
+Pure-function tests (price pre-filter, regex query parser — no network needed) live in `tests/`; run them with `python -m pytest tests/ -q` (`pip install pytest` first). There is no linter or build step — everything else is verified by running the components against a live (or local) Meilisearch instance and Telegram API.
 
 Requires a `.env` file (see "Environment variables" below) and Python 3.11. Install deps with:
 
@@ -40,13 +40,15 @@ docker-compose up --build
 
 Three long-running processes share one Meilisearch `products` index, managed by `supervisord.conf` in the container (`meilisearch`, `listener`, `bot`, plus a one-shot `seeder`):
 
-1. **`scraper/listener.py`** — Telethon client listening for `NewMessage` events on `TARGET_CHANNELS`. On each new post, builds a raw payload and passes it to `nlp/extractor.py`, then writes the result to Meilisearch via `db/database.py`.
-2. **`scraper/historical_scraper.py`** — one-off backfill: iterates the last 30 days of messages per channel in `TARGET_CHANNELS`, filters for messages that look like they contain a price (`is_valid_product_message`), and feeds valid ones through the same extractor → database pipeline. Includes a 1.5s inter-message delay and `FloodWaitError` handling to avoid Telegram rate limits/bans. Invoked via `db/seeder.py` (which also (re)initializes the index first) or directly.
-3. **`bot/main_bot.py`** — the user-facing Telethon bot. Parses free-text queries (`parse_user_query`: extracts a max price from phrases like "under 500" and a location from a hardcoded list of Addis Ababa neighborhoods), queries Meilisearch with `price <=` / `location =` filters, and replies with lowest/highest/average price plus the cheapest listing and top alternatives, each linking back to the original `t.me` post. It also embeds a FastAPI app (run concurrently via `asyncio.gather`) exposing `/`, `/ping` (external keep-alive), and `/seed?token=<BOT_TOKEN>` (remote trigger for `db/seeder.py` as a background subprocess) — required because Hugging Face Spaces kills containers that don't bind to port 7860.
+1. **`scraper/listener.py`** — Telethon client listening for `NewMessage` events on `TARGET_CHANNELS`. On each new post, runs the cheap price pre-filter (`scraper/filters.py`), builds the standard payload (`id` = `<channel>_<message_id>`, `original_text`, `timestamp`, ...), passes it to `nlp/extractor.py`, then writes the result to Meilisearch via `db/database.py` (in `asyncio.to_thread`, since the Meilisearch client is sync).
+2. **`scraper/historical_scraper.py`** — one-off backfill: iterates the last `BACKFILL_DAYS` (default 30) days of messages per channel in `TARGET_CHANNELS`, pre-filters with `scraper/filters.py`, skips messages already indexed (`document_exists` — so re-seeding doesn't re-spend Groq quota), and feeds the rest through the same extractor → database pipeline. Includes a 1.5s delay after each processed message and `FloodWaitError` handling to avoid Telegram rate limits/bans. Invoked via `db/seeder.py` (which also (re)initializes the index first) or directly.
+3. **`bot/main_bot.py`** — the user-facing Telethon bot. Parses free-text queries via `nlp/query_parser.py` (Groq LLM extracts search terms/max price/location; a pure-regex fallback in `parse_user_query_fallback` takes over on any LLM failure or >6s timeout), queries Meilisearch with `price <=` / `location =` filters, and replies with lowest/highest/average price plus the cheapest listing and top alternatives (HTML-escaped, with listing age), each linking back to the original `t.me` post. It also embeds a FastAPI app (run concurrently via `asyncio.gather`) exposing `/`, `/ping` (external keep-alive), and `/seed?token=<BOT_TOKEN>` (remote trigger for `db/seeder.py`; constant-time token check, refuses concurrent runs) — required because Hugging Face Spaces kills containers that don't bind to port 7860.
 
-**`nlp/extractor.py`** is the shared LLM entity-extraction step used by both the listener and the historical scraper: sends the raw message text to Groq (`llama-3.3-70b-versatile`, JSON mode) with a prompt asking for `product_name`, `price`, `location`, coerces price to an int, and returns `None` if no price was found (payloads without a price are dropped, never indexed).
+**`scraper/filters.py`** — shared pre-LLM gate: `is_valid_product_message` requires a plausible price pattern in the text, after masking Ethiopian phone numbers so they don't count as prices.
 
-**`db/database.py`** (`ProductDatabase`) wraps the Meilisearch client: connects with a retry loop (10 attempts, 3s apart) since the container's Meilisearch process may not be up yet, and defines the index schema — searchable (`product_name`, `original_text`), filterable (`price`, `location`, `channel_username`), and sortable (`price`, `timestamp`) attributes.
+**`nlp/extractor.py`** is the shared LLM entity-extraction step used by both the listener and the historical scraper: sends the raw message text to Groq (`GROQ_MODEL`, default `llama-3.3-70b-versatile`, JSON mode, AsyncGroq) with a prompt asking for `product_name` (brand+model+specs), `price`, `location`; retries on rate limits, coerces price to an int, and returns `None` if no price was found or the price is outside sanity bounds (100–50,000,000 ETB) — such payloads are dropped, never indexed.
+
+**`db/database.py`** (`ProductDatabase`) wraps the Meilisearch client: connects with a retry loop (10 attempts, 3s apart) since the container's Meilisearch process may not be up yet, and defines the index schema — searchable (`product_name`, `original_text`), filterable (`price`, `location`, `channel_username`), sortable (`price`, `timestamp`) attributes, plus shopper synonyms (macbook/mac book, laptop/notebook, ...). Also exposes `document_exists(id)` for dedupe.
 
 ### Known gotchas (from README, still relevant)
 
@@ -57,4 +59,4 @@ Three long-running processes share one Meilisearch `products` index, managed by 
 
 ### Environment variables
 
-Required (see `README.md` for the full list): `TELEGRAM_APP_ID`, `TELEGRAM_API_HASH`, `BOT_TOKEN`, `MEILI_HOST`, `MEILI_MASTER_KEY`, `GROQ_API_KEY`, `TELEGRAM_STRING_SESSION`, `TARGET_CHANNELS` (comma-separated channel usernames, no `@`).
+Required (see `README.md` for the full list): `TELEGRAM_APP_ID`, `TELEGRAM_API_HASH`, `BOT_TOKEN`, `MEILI_HOST`, `MEILI_MASTER_KEY`, `GROQ_API_KEY`, `TELEGRAM_STRING_SESSION`, `TARGET_CHANNELS` (comma-separated channel usernames, no `@`). Optional: `GROQ_MODEL` (default `llama-3.3-70b-versatile`), `BACKFILL_DAYS` (default 30).
