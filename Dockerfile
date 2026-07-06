@@ -6,6 +6,10 @@ RUN apt-get update && apt-get install -y curl supervisor && rm -rf /var/lib/apt/
 
 WORKDIR /app
 
+# Unbuffered Python output so all component logs appear immediately in the
+# Hugging Face log viewer (equivalent to running every script with -u).
+ENV PYTHONUNBUFFERED=1
+
 # Download the Meilisearch binary directly into the container
 RUN curl -L https://install.meilisearch.com | sh
 

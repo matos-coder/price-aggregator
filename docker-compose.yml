@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   # 1. The Search Engine
   meilisearch:
@@ -11,8 +9,8 @@ services:
       - MEILI_NO_ANALYTICS=true
     ports:
       - "7700:7700"
-    healthcheck: # Added healthcheck
-      test: ["CMD", "curl", "-f", "http://meilisearch:7700/health"]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:7700/health"]
       interval: 5s
       timeout: 2s
       retries: 5
@@ -20,7 +18,27 @@ services:
       - meili_data:/meili_data # Saves your DB data so it isn't lost on restart
     restart: always
 
-  # 2. The 24/7 Telegram Listener
+  # 2. One-shot seeder: initializes the index config (filterable/sortable
+  #    attributes + synonyms) and backfills history. Runs to completion, exits.
+  seeder:
+    build: .
+    container_name: ethio_radar_seeder
+    command: python -m db.seeder
+    environment:
+      - TELEGRAM_APP_ID=${TELEGRAM_APP_ID}
+      - TELEGRAM_API_HASH=${TELEGRAM_API_HASH}
+      - TELEGRAM_STRING_SESSION=${TELEGRAM_STRING_SESSION}
+      - TARGET_CHANNELS=${TARGET_CHANNELS}
+      - GROQ_API_KEY=${GROQ_API_KEY}
+      - GROQ_MODEL=${GROQ_MODEL:-llama-3.3-70b-versatile}
+      - BACKFILL_DAYS=${BACKFILL_DAYS:-30}
+      - MEILI_HOST=http://meilisearch:7700
+      - MEILI_MASTER_KEY=${MEILI_MASTER_KEY}
+    depends_on:
+      meilisearch:
+        condition: service_healthy
+
+  # 3. The 24/7 Telegram Listener
   listener:
     build: .
     container_name: ethio_radar_listener
@@ -31,39 +49,33 @@ services:
       - TARGET_CHANNELS=${TARGET_CHANNELS}
       - TELEGRAM_STRING_SESSION=${TELEGRAM_STRING_SESSION}
       - GROQ_API_KEY=${GROQ_API_KEY}
+      - GROQ_MODEL=${GROQ_MODEL:-llama-3.3-70b-versatile}
       - MEILI_HOST=http://meilisearch:7700 # Uses internal Docker network
       - MEILI_MASTER_KEY=${MEILI_MASTER_KEY}
     depends_on:
-      - meilisearch
+      meilisearch:
+        condition: service_healthy
     restart: always
 
-  # 3. The Consumer Bot
+  # 4. The Consumer Bot (+ FastAPI health server on 7860)
   bot:
     build: .
     container_name: ethio_radar_bot
     command: python -m bot.main_bot
     environment:
+      - TELEGRAM_APP_ID=${TELEGRAM_APP_ID}
+      - TELEGRAM_API_HASH=${TELEGRAM_API_HASH}
       - BOT_TOKEN=${BOT_TOKEN}
+      - GROQ_API_KEY=${GROQ_API_KEY}
+      - GROQ_MODEL=${GROQ_MODEL:-llama-3.3-70b-versatile}
       - MEILI_HOST=http://meilisearch:7700
       - MEILI_MASTER_KEY=${MEILI_MASTER_KEY}
+    ports:
+      - "7860:7860"
     depends_on:
-      - meilisearch
+      meilisearch:
+        condition: service_healthy
     restart: always
-    
-  seeder:
-    build: .
-    container_name: ethio_radar_seeder
-    command: python db/seeder.py
-    environment:
-        - TELEGRAM_APP_ID=${TELEGRAM_APP_ID}
-        - TELEGRAM_API_HASH=${TELEGRAM_API_HASH}
-        - TELEGRAM_STRING_SESSION=${TELEGRAM_STRING_SESSION}
-        - TARGET_CHANNELS=${TARGET_CHANNELS}
-        - GROQ_API_KEY=${GROQ_API_KEY}
-        - MEILI_HOST=http://meilisearch:7700
-        - MEILI_MASTER_KEY=${MEILI_MASTER_KEY}
-    depends_on:
-        - meilisearch
 
 # Define the persistent volume for the database
 volumes:
