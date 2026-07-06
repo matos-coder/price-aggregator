@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 from dotenv import load_dotenv
 from telethon import TelegramClient
 from telethon.sessions import StringSession
-from telethon.errors import FloodWaitError
+from telethon.errors import FloodWaitError, AuthKeyDuplicatedError, AuthKeyUnregisteredError
 
 from nlp.extractor import extract_entities
 from db.database import ProductDatabase
@@ -135,7 +135,15 @@ async def main():
 
     logger.info("Starting historical scraper")
 
-    await client.start()
+    try:
+        await client.start()
+    except (AuthKeyDuplicatedError, AuthKeyUnregisteredError):
+        logger.error(
+            "FATAL: TELEGRAM_STRING_SESSION has been revoked by Telegram "
+            "(used from two IPs at once, or logged out). Generate a fresh one "
+            "with 'python -m scripts.generate_session' and update the secret."
+        )
+        exit(1)
 
     logger.info("Telegram client connected")
 

@@ -4,6 +4,7 @@ import asyncio
 from dotenv import load_dotenv
 from telethon import TelegramClient, events
 from telethon.sessions import StringSession
+from telethon.errors import AuthKeyDuplicatedError, AuthKeyUnregisteredError
 from db.database import ProductDatabase
 from nlp.extractor import extract_entities
 from scraper.filters import is_valid_product_message
@@ -76,7 +77,15 @@ async def handle_new_message(event):
 
 async def main():
     logger.info(f"Starting listener. Monitoring channels: {TARGET_CHANNELS}")
-    await client.start()
+    try:
+        await client.start()
+    except (AuthKeyDuplicatedError, AuthKeyUnregisteredError):
+        logger.error(
+            "FATAL: TELEGRAM_STRING_SESSION has been revoked by Telegram "
+            "(used from two IPs at once, or logged out). Generate a fresh one "
+            "with 'python -m scripts.generate_session' and update the secret."
+        )
+        exit(1)
     logger.info("Client connected. Listening for new inventory...")
     # This keeps the script running 24/7
     await client.run_until_disconnected()
